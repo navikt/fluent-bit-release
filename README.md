@@ -19,11 +19,27 @@ Download the latest release from the [Releases](https://github.com/navikt/fluent
 
 ```bash
 # Replace VERSION with the desired version
-VERSION=3.2.2
+VERSION=4.2.0
 wget https://github.com/navikt/fluent-bit-release/releases/download/v${VERSION}/fluent-bit-${VERSION}-linux-x86_64-static.tar.gz
 tar -xzf fluent-bit-${VERSION}-linux-x86_64-static.tar.gz
 cd fluent-bit-linux-x86_64
 ./fluent-bit --version
+```
+
+### Verify Download Integrity
+
+Each release includes SHA256 and SHA512 checksums for verification:
+
+```bash
+# Download checksums
+wget https://github.com/navikt/fluent-bit-release/releases/download/v${VERSION}/fluent-bit-${VERSION}-linux-x86_64-static.tar.gz.sha256
+wget https://github.com/navikt/fluent-bit-release/releases/download/v${VERSION}/fluent-bit-${VERSION}-linux-x86_64-static.tar.gz.sha512
+
+# Verify SHA256
+sha256sum -c fluent-bit-${VERSION}-linux-x86_64-static.tar.gz.sha256
+
+# Or verify SHA512
+sha512sum -c fluent-bit-${VERSION}-linux-x86_64-static.tar.gz.sha512
 ```
 
 ## Manual Trigger
@@ -46,3 +62,68 @@ The workflow includes a dry run mode for testing:
 - **Behavior**: Builds and packages the binary but skips release creation
 
 This allows testing the build process before merging changes.
+
+## Local Testing
+
+You can test the build process locally using Docker to replicate the GitHub Actions environment:
+
+### Prerequisites
+
+- Docker installed on your system
+
+### Build and Test
+
+```bash
+# Build the Docker test image
+docker build -f Dockerfile.test -t fluent-bit-test .
+
+# Run the build
+docker run -v $(pwd):/output fluent-bit-test
+```
+
+The test will:
+
+1. Download the latest Fluent Bit source code
+2. Build OpenSSL and zlib statically
+3. Build Fluent Bit with static linking
+4. Verify the binary is statically linked
+5. Generate SHA256 and SHA512 checksums
+6. Package everything as a tarball
+
+### Interactive Testing
+
+For debugging or manual testing:
+
+```bash
+# Run interactively
+docker run -it -v $(pwd):/output fluent-bit-test bash
+
+# Then run the test script manually
+./test-build.sh
+```
+
+### Test Script
+
+The `test-build.sh` script can also be run directly on Linux systems:
+
+```bash
+./test-build.sh
+```
+
+Note: On Linux, the script will attempt to install dependencies using `apt-get`. On other systems (macOS), use Docker as shown above.
+
+## Build Configuration
+
+The static builds include:
+
+- **OpenSSL 3.0.15** - Built statically for TLS support
+- **zlib 1.3.1** - Built statically for compression
+- **Disabled features**:
+  - systemd input plugin (requires dynamic linking)
+  - YAML configuration format (optional dependency)
+
+All builds use:
+
+- `-DFLB_STATIC_LIBS=On` - Enable static library linking
+- `-DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc"` - Force static linking
+- Release optimization flags

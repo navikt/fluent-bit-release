@@ -44,8 +44,8 @@ cmake -DCMAKE_BUILD_TYPE=Release \
       -DOPENSSL_USE_STATIC_LIBS=ON \
       -DZLIB_ROOT=/usr/local/zlib \
       -DZLIB_USE_STATIC_LIBS=ON \
-      -DZstd_ROOT=/usr/local/zstd \
-      -DZstd_USE_STATIC_LIBS=ON \
+      -DCMAKE_PREFIX_PATH="/usr/local/zstd" \
+      -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" \
       -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc" \
       ..
 

@@ -28,7 +28,7 @@ RUN cd /tmp && \
     wget https://github.com/facebook/zstd/releases/download/v1.5.6/zstd-1.5.6.tar.gz && \
     tar -xzf zstd-1.5.6.tar.gz && \
     cd zstd-1.5.6 && \
-    make -j$(nproc) && \
+    make -j$(nproc) lib-nomt && \
     make install PREFIX=/usr/local/zstd && \
     cd / && rm -rf /tmp/zstd-1.5.6*
 

@@ -1,0 +1,78 @@
+# Stage 1: Build static dependencies (cached layer)
+FROM ubuntu:latest AS deps-builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build zlib statically
+RUN cd /tmp && \
+    wget https://zlib.net/zlib-1.3.1.tar.gz && \
+    tar -xzf zlib-1.3.1.tar.gz && \
+    cd zlib-1.3.1 && \
+    ./configure --prefix=/usr/local/zlib --static && \
+    make -j$(nproc) && \
+    make install && \
+    cd / && rm -rf /tmp/zlib-1.3.1*
+
+# Build zstd statically using CMAKE
+RUN cd /tmp && \
+    wget https://github.com/facebook/zstd/releases/download/v1.5.6/zstd-1.5.6.tar.gz && \
+    tar -xzf zstd-1.5.6.tar.gz && \
+    cd zstd-1.5.6/build/cmake && \
+    cmake -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_SHARED_LIBS=OFF \
+          -DZSTD_BUILD_SHARED=OFF \
+          -DZSTD_BUILD_STATIC=ON \
+          -DZSTD_BUILD_PROGRAMS=OFF \
+          -DZSTD_BUILD_CONTRIB=OFF \
+          -DZSTD_BUILD_TESTS=OFF \
+          -DCMAKE_INSTALL_PREFIX=/usr/local/zstd \
+          . && \
+    make -j$(nproc) && \
+    make install && \
+    cd / && rm -rf /tmp/zstd-1.5.6*
+
+# Build OpenSSL statically
+RUN cd /tmp && \
+    wget https://www.openssl.org/source/openssl-3.0.15.tar.gz && \
+    tar -xzf openssl-3.0.15.tar.gz && \
+    cd openssl-3.0.15 && \
+    ./config no-shared --prefix=/usr/local/ssl && \
+    make -j$(nproc) && \
+    make install && \
+    cd / && rm -rf /tmp/openssl-3.0.15*
+
+# Stage 2: Final image with runtime tools
+FROM ubuntu:latest
+
+# Install minimal runtime dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    flex \
+    bison \
+    wget \
+    git \
+    curl \
+    jq \
+    file \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy pre-built static libraries from deps-builder
+COPY --from=deps-builder /usr/local/zlib /usr/local/zlib
+COPY --from=deps-builder /usr/local/zstd /usr/local/zstd
+COPY --from=deps-builder /usr/local/ssl /usr/local/ssl
+
+# Set working directory
+WORKDIR /build
+
+# Copy the test script
+COPY test-build.sh .
+RUN chmod +x test-build.sh
+
+# Run the build
+CMD ["./test-build.sh"]

@@ -36,17 +36,22 @@ cd build
 
 cmake -DCMAKE_BUILD_TYPE=Release \
       -DFLB_RELEASE=On \
-      -DFLB_STATIC_LIBS=On \
+      -DFLB_DEBUG=No \
       -DFLB_SHARED_LIB=Off \
+      -DFLB_STATIC_LIBS=On \
       -DFLB_IN_SYSTEMD=Off \
       -DFLB_CONFIG_YAML=Off \
+      -DFLB_WASM=No \
+      -DFLB_LUAJIT=No \
       -DOPENSSL_ROOT_DIR=/usr/local/ssl \
       -DOPENSSL_USE_STATIC_LIBS=ON \
       -DZLIB_ROOT=/usr/local/zlib \
       -DZLIB_USE_STATIC_LIBS=ON \
       -DCMAKE_PREFIX_PATH="/usr/local/zstd" \
       -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" \
+      -DBUILD_SHARED_LIBS=OFF \
       -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc" \
+      -DCMAKE_C_FLAGS="-fcommon" \
       ..
 
 make -j$(nproc)

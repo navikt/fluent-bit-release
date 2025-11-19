@@ -74,8 +74,8 @@ You can test the build process locally using Docker to replicate the GitHub Acti
 ### Build and Test
 
 ```bash
-# Build the Docker test image
-docker build -f Dockerfile.test -t fluent-bit-test .
+# Build the Docker test image (uses BuildKit for parallel builds)
+DOCKER_BUILDKIT=1 docker build -f Dockerfile.test -t fluent-bit-test .
 
 # Run the build
 docker run -v $(pwd):/output fluent-bit-test

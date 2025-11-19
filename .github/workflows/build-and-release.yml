@@ -99,7 +99,8 @@ jobs:
           VERSION="${{ needs.check-version.outputs.latest_version }}"
           cd "fluent-bit-${VERSION}"
           
-          # Create build directory
+          # Remove build directory if it exists and create fresh one
+          rm -rf build
           mkdir build
           cd build
           

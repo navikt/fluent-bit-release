@@ -112,10 +112,16 @@ jobs:
           cd /tmp
           wget https://github.com/facebook/zstd/releases/download/v1.5.6/zstd-1.5.6.tar.gz
           tar -xzf zstd-1.5.6.tar.gz
-          cd zstd-1.5.6
-          # Build only the static library
-          make -j$(nproc) lib-nomt
-          sudo make install PREFIX=/usr/local/zstd
+          cd zstd-1.5.6/build/cmake
+          cmake -DCMAKE_BUILD_TYPE=Release \
+                -DBUILD_SHARED_LIBS=OFF \
+                -DZSTD_BUILD_PROGRAMS=OFF \
+                -DZSTD_BUILD_CONTRIB=OFF \
+                -DZSTD_BUILD_TESTS=OFF \
+                -DCMAKE_INSTALL_PREFIX=/usr/local/zstd \
+                .
+          make -j$(nproc)
+          sudo make install
           cd /
           rm -rf /tmp/zstd-1.5.6*
 

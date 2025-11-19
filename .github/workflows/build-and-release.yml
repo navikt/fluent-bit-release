@@ -2,6 +2,15 @@ name: Build and Release Fluent Bit
 
 on:
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run mode (build only, no release)'
+        required: false
+        type: boolean
+        default: false
+  pull_request:
+    branches:
+      - main
   schedule:
     # Run daily at 00:00 UTC to check for new releases
     - cron: '0 0 * * *'
@@ -15,11 +24,23 @@ jobs:
     outputs:
       latest_version: ${{ steps.get_version.outputs.version }}
       should_build: ${{ steps.check_release.outputs.should_build }}
+      is_dry_run: ${{ steps.set_dry_run.outputs.is_dry_run }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Determine dry run mode
+        id: set_dry_run
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]] || [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            echo "is_dry_run=true" >> $GITHUB_OUTPUT
+            echo "Running in DRY RUN mode - will build but not create release"
+          else
+            echo "is_dry_run=false" >> $GITHUB_OUTPUT
+            echo "Running in NORMAL mode - will build and create release"
+          fi
 
       - name: Get latest Fluent Bit version
         id: get_version
@@ -32,7 +53,12 @@ jobs:
         id: check_release
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
-          if gh release view "v$VERSION" > /dev/null 2>&1; then
+          IS_DRY_RUN="${{ steps.set_dry_run.outputs.is_dry_run }}"
+          
+          if [[ "$IS_DRY_RUN" == "true" ]]; then
+            echo "Dry run mode: will build regardless of existing release"
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          elif gh release view "v$VERSION" > /dev/null 2>&1; then
             echo "Release v$VERSION already exists"
             echo "should_build=false" >> $GITHUB_OUTPUT
           else
@@ -115,6 +141,7 @@ jobs:
 
   release:
     needs: [check-version, build]
+    if: needs.check-version.outputs.is_dry_run == 'false'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -156,3 +183,26 @@ jobs:
             fluent-bit-*.tar.gz
         env:
           GH_TOKEN: ${{ github.token }}
+
+  dry-run-summary:
+    needs: [check-version, build]
+    if: needs.check-version.outputs.is_dry_run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: fluent-bit-linux-x86_64
+
+      - name: Dry run summary
+        run: |
+          VERSION="${{ needs.check-version.outputs.latest_version }}"
+          echo "::notice::DRY RUN COMPLETED SUCCESSFULLY"
+          echo "::notice::Fluent Bit v${VERSION} was built and packaged"
+          echo "::notice::In production mode, this would create a release"
+          echo ""
+          echo "Build artifacts:"
+          ls -lh fluent-bit-*.tar.gz
+          echo ""
+          echo "Artifact size:"
+          du -h fluent-bit-*.tar.gz

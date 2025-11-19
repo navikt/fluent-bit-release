@@ -33,5 +33,16 @@ To manually trigger a build:
 1. Go to the [Actions](https://github.com/navikt/fluent-bit-release/actions) tab
 2. Select "Build and Release Fluent Bit" workflow
 3. Click "Run workflow"
+4. Optionally enable "Dry run mode" to test the build without creating a release
 
 The workflow will check for the latest Fluent Bit version and create a release if one doesn't already exist.
+
+## Dry Run Mode
+
+The workflow includes a dry run mode for testing:
+
+- **Pull Requests**: Automatically runs in dry run mode on PRs to `main` branch
+- **Manual Trigger**: Can be enabled via the "Dry run mode" checkbox when manually triggering
+- **Behavior**: Builds and packages the binary but skips release creation
+
+This allows testing the build process before merging changes.

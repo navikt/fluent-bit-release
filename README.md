@@ -118,6 +118,7 @@ The static builds include:
 
 - **OpenSSL 3.0.15** - Built statically for TLS support
 - **zlib 1.3.1** - Built statically for compression
+- **zstd 1.5.6** - Built statically for Zstandard compression
 - **Disabled features**:
   - systemd input plugin (requires dynamic linking)
   - YAML configuration format (optional dependency)

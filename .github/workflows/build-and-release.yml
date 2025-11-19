@@ -1,0 +1,158 @@
+name: Build and Release Fluent Bit
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Run daily at 00:00 UTC to check for new releases
+    - cron: '0 0 * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      latest_version: ${{ steps.get_version.outputs.version }}
+      should_build: ${{ steps.check_release.outputs.should_build }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get latest Fluent Bit version
+        id: get_version
+        run: |
+          LATEST_VERSION=$(curl -s https://api.github.com/repos/fluent/fluent-bit/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+          echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+          echo "Latest Fluent Bit version: $LATEST_VERSION"
+
+      - name: Check if release exists
+        id: check_release
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            echo "Release v$VERSION already exists"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+          else
+            echo "Release v$VERSION does not exist, will build"
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  build:
+    needs: check-version
+    if: needs.check-version.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            flex \
+            bison \
+            libssl-dev \
+            libyaml-dev \
+            libsystemd-dev \
+            wget \
+            git
+
+      - name: Download Fluent Bit source
+        run: |
+          VERSION="${{ needs.check-version.outputs.latest_version }}"
+          wget "https://github.com/fluent/fluent-bit/archive/refs/tags/v${VERSION}.tar.gz"
+          tar -xzf "v${VERSION}.tar.gz"
+          cd "fluent-bit-${VERSION}"
+
+      - name: Build Fluent Bit statically
+        run: |
+          VERSION="${{ needs.check-version.outputs.latest_version }}"
+          cd "fluent-bit-${VERSION}"
+          
+          # Create build directory
+          mkdir build
+          cd build
+          
+          # Configure with static linking
+          cmake -DCMAKE_BUILD_TYPE=Release \
+                -DFLB_RELEASE=On \
+                -DFLB_STATIC_LIBS=On \
+                -DFLB_SHARED_LIB=Off \
+                -DCMAKE_EXE_LINKER_FLAGS="-static" \
+                ..
+          
+          # Build
+          make -j$(nproc)
+          
+          # Verify the binary is statically linked
+          file bin/fluent-bit
+          ldd bin/fluent-bit || echo "Binary is statically linked (expected)"
+
+      - name: Package artifacts
+        run: |
+          VERSION="${{ needs.check-version.outputs.latest_version }}"
+          cd "fluent-bit-${VERSION}/build"
+          
+          # Create package directory
+          mkdir -p fluent-bit-linux-x86_64
+          cp bin/fluent-bit fluent-bit-linux-x86_64/
+          
+          # Create tarball
+          tar -czf "fluent-bit-${VERSION}-linux-x86_64-static.tar.gz" fluent-bit-linux-x86_64
+          
+          # Move to workspace root
+          mv "fluent-bit-${VERSION}-linux-x86_64-static.tar.gz" "$GITHUB_WORKSPACE/"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluent-bit-linux-x86_64
+          path: fluent-bit-*.tar.gz
+
+  release:
+    needs: [check-version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: fluent-bit-linux-x86_64
+
+      - name: Create Release
+        run: |
+          VERSION="${{ needs.check-version.outputs.latest_version }}"
+          
+          cat > release_notes.md << 'EOF'
+          Statically compiled Fluent Bit v$VERSION for Linux x86_64
+
+          This release contains a statically linked binary of Fluent Bit built from the official source at https://github.com/fluent/fluent-bit/releases/tag/v$VERSION
+
+          ## Installation
+
+          ```bash
+          wget https://github.com/${{ github.repository }}/releases/download/v$VERSION/fluent-bit-$VERSION-linux-x86_64-static.tar.gz
+          tar -xzf fluent-bit-$VERSION-linux-x86_64-static.tar.gz
+          cd fluent-bit-linux-x86_64
+          ./fluent-bit --version
+          ```
+
+          ## Included Artifacts
+
+          - `fluent-bit-$VERSION-linux-x86_64-static.tar.gz`: Statically compiled binary for Linux x86_64
+          EOF
+          
+          sed -i "s/\$VERSION/${VERSION}/g" release_notes.md
+          
+          gh release create "v${VERSION}" \
+            --title "Fluent Bit v${VERSION}" \
+            --notes-file release_notes.md \
+            fluent-bit-*.tar.gz
+        env:
+          GH_TOKEN: ${{ github.token }}

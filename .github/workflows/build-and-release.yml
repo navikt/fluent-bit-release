@@ -3,6 +3,10 @@ name: Build and Release Fluent Bit
 on:
   workflow_dispatch:
     inputs:
+      version:
+        description: 'Fluent Bit version to build (e.g., 4.2.0, leave empty for latest)'
+        required: false
+        type: string
       dry_run:
         description: 'Dry run mode (build only, no release)'
         required: false
@@ -42,21 +46,31 @@ jobs:
             echo "Running in NORMAL mode - will build and create release"
           fi
 
-      - name: Get latest Fluent Bit version
+      - name: Get Fluent Bit version
         id: get_version
         run: |
-          LATEST_VERSION=$(curl -s https://api.github.com/repos/fluent/fluent-bit/releases/latest | jq -r '.tag_name' | sed 's/^v//')
-          echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
-          echo "Latest Fluent Bit version: $LATEST_VERSION"
+          if [[ -n "${{ inputs.version }}" ]]; then
+            VERSION="${{ inputs.version }}"
+            echo "Using specified version: $VERSION"
+          else
+            VERSION=$(curl -s https://api.github.com/repos/fluent/fluent-bit/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+            echo "Using latest version: $VERSION"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Fluent Bit version: $VERSION"
 
       - name: Check if release exists
         id: check_release
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
           IS_DRY_RUN="${{ steps.set_dry_run.outputs.is_dry_run }}"
+          MANUAL_VERSION="${{ inputs.version }}"
 
           if [[ "$IS_DRY_RUN" == "true" ]]; then
             echo "Dry run mode: will build regardless of existing release"
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          elif [[ -n "$MANUAL_VERSION" ]]; then
+            echo "Manual version specified: will build regardless of existing release"
             echo "should_build=true" >> $GITHUB_OUTPUT
           elif gh release view "v$VERSION" > /dev/null 2>&1; then
             echo "::warning::Release v$VERSION already exists, skipping build"

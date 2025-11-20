@@ -93,7 +93,7 @@ jobs:
           echo "::notice::Skipping build - Fluent Bit v${{ needs.check-version.outputs.latest_version }} already released"
           echo "No new version to build. Current latest: v${{ needs.check-version.outputs.latest_version }}"
 
-  build:
+  build-deps:
     needs: check-version
     if: needs.check-version.outputs.should_build == 'true'
     runs-on: ubuntu-latest
@@ -153,6 +153,58 @@ jobs:
           cd /
           rm -rf /tmp/openssl-3.0.15*
 
+      - name: Cache dependencies
+        run: |
+          mkdir -p deps-cache
+          sudo tar -czf deps-cache/static-libs.tar.gz \
+            /usr/local/zlib \
+            /usr/local/zstd \
+            /usr/local/ssl
+
+      - name: Upload dependencies
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-dependencies
+          path: deps-cache/static-libs.tar.gz
+          retention-days: 1
+
+  build:
+    needs: [check-version, build-deps]
+    if: needs.check-version.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        variant:
+          - name: "no-lua"
+            suffix: "static"
+            luajit: "No"
+            description: "Static build without Lua support"
+          - name: "luajit"
+            suffix: "static-luajit"
+            luajit: "Yes"
+            description: "Static build with LuaJIT support"
+    steps:
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            flex \
+            bison \
+            wget \
+            git
+
+      - name: Download dependencies
+        uses: actions/download-artifact@v4
+        with:
+          name: static-dependencies
+          path: deps-cache
+
+      - name: Extract dependencies
+        run: |
+          sudo tar -xzf deps-cache/static-libs.tar.gz -C /
+
       - name: Download Fluent Bit source
         run: |
           VERSION="${{ needs.check-version.outputs.latest_version }}"
@@ -160,7 +212,7 @@ jobs:
           tar -xzf "v${VERSION}.tar.gz"
           cd "fluent-bit-${VERSION}"
 
-      - name: Build Fluent Bit statically
+      - name: Build Fluent Bit statically (${{ matrix.variant.description }})
         run: |
           VERSION="${{ needs.check-version.outputs.latest_version }}"
           cd "fluent-bit-${VERSION}"
@@ -170,7 +222,7 @@ jobs:
           mkdir build
           cd build
 
-          # Configure with static linking (disable systemd, WASM, LuaJIT for static builds)
+          # Configure with static linking
           cmake -DCMAKE_BUILD_TYPE=Release \
                 -DFLB_RELEASE=On \
                 -DFLB_DEBUG=No \
@@ -179,7 +231,7 @@ jobs:
                 -DFLB_IN_SYSTEMD=Off \
                 -DFLB_CONFIG_YAML=Off \
                 -DFLB_WASM=No \
-                -DFLB_LUAJIT=No \
+                -DFLB_LUAJIT=${{ matrix.variant.luajit }} \
                 -DOPENSSL_ROOT_DIR=/usr/local/ssl \
                 -DOPENSSL_USE_STATIC_LIBS=ON \
                 -DZLIB_ROOT=/usr/local/zlib \
@@ -198,29 +250,31 @@ jobs:
           file bin/fluent-bit
           ldd bin/fluent-bit || echo "Binary is statically linked (expected)"
 
-      - name: Package artifacts
+      - name: Package artifacts (${{ matrix.variant.name }})
         run: |
           VERSION="${{ needs.check-version.outputs.latest_version }}"
+          VARIANT="${{ matrix.variant.name }}"
+          SUFFIX="${{ matrix.variant.suffix }}"
           cd "fluent-bit-${VERSION}/build"
 
           # Create package directory
           mkdir -p fluent-bit-linux-x86_64
           cp bin/fluent-bit fluent-bit-linux-x86_64/
 
-          # Create tarball
-          tar -czf "fluent-bit-${VERSION}-linux-x86_64-static.tar.gz" fluent-bit-linux-x86_64
+          # Create tarball with variant suffix
+          tar -czf "fluent-bit-${VERSION}-linux-x86_64-${SUFFIX}.tar.gz" fluent-bit-linux-x86_64
 
           # Generate checksums
-          sha256sum "fluent-bit-${VERSION}-linux-x86_64-static.tar.gz" > "fluent-bit-${VERSION}-linux-x86_64-static.tar.gz.sha256"
-          sha512sum "fluent-bit-${VERSION}-linux-x86_64-static.tar.gz" > "fluent-bit-${VERSION}-linux-x86_64-static.tar.gz.sha512"
+          sha256sum "fluent-bit-${VERSION}-linux-x86_64-${SUFFIX}.tar.gz" > "fluent-bit-${VERSION}-linux-x86_64-${SUFFIX}.tar.gz.sha256"
+          sha512sum "fluent-bit-${VERSION}-linux-x86_64-${SUFFIX}.tar.gz" > "fluent-bit-${VERSION}-linux-x86_64-${SUFFIX}.tar.gz.sha512"
 
           # Move to workspace root
-          mv "fluent-bit-${VERSION}-linux-x86_64-static.tar.gz"* "$GITHUB_WORKSPACE/"
+          mv "fluent-bit-${VERSION}-linux-x86_64-${SUFFIX}.tar.gz"* "$GITHUB_WORKSPACE/"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fluent-bit-linux-x86_64
+          name: fluent-bit-linux-x86_64-${{ matrix.variant.name }}
           path: |
             fluent-bit-*.tar.gz
             fluent-bit-*.tar.gz.sha256
@@ -237,7 +291,8 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: fluent-bit-linux-x86_64
+          pattern: fluent-bit-linux-x86_64-*
+          merge-multiple: true
 
       - name: Create Release
         run: |
@@ -246,38 +301,57 @@ jobs:
           cat > release_notes.md << 'EOF'
           Statically compiled Fluent Bit v$VERSION for Linux x86_64
 
-          This release contains a statically linked binary of Fluent Bit built from the official source at https://github.com/fluent/fluent-bit/releases/tag/v$VERSION
+          This release contains statically linked binaries of Fluent Bit built from the official source at https://github.com/fluent/fluent-bit/releases/tag/v$VERSION
 
-          ## Installation
+          ## Build Variants
 
+          ### Standard Build (Recommended for most users)
           ```bash
           wget https://github.com/${{ github.repository }}/releases/download/v$VERSION/fluent-bit-$VERSION-linux-x86_64-static.tar.gz
           tar -xzf fluent-bit-$VERSION-linux-x86_64-static.tar.gz
           cd fluent-bit-linux-x86_64
           ./fluent-bit --version
           ```
+          - **Features**: Fully static, zero dependencies, maximum portability
+          - **Limitations**: No Lua filter support
+          - **Use case**: Production deployments where Lua filters are not needed
+
+          ### LuaJIT Build (For Lua filter support)
+          ```bash
+          wget https://github.com/${{ github.repository }}/releases/download/v$VERSION/fluent-bit-$VERSION-linux-x86_64-static-luajit.tar.gz
+          tar -xzf fluent-bit-$VERSION-linux-x86_64-static-luajit.tar.gz
+          cd fluent-bit-linux-x86_64
+          ./fluent-bit --version
+          ```
+          - **Features**: Fully static with embedded LuaJIT, supports Lua filters
+          - **Limitations**: Slightly larger binary size
+          - **Use case**: When you need Lua filter plugin functionality
 
           ## Verification
 
-          Verify the download integrity using the provided checksums:
+          Each variant includes SHA256 and SHA512 checksums:
 
           ```bash
-          # Download checksums
+          # For standard build
           wget https://github.com/${{ github.repository }}/releases/download/v$VERSION/fluent-bit-$VERSION-linux-x86_64-static.tar.gz.sha256
-          wget https://github.com/${{ github.repository }}/releases/download/v$VERSION/fluent-bit-$VERSION-linux-x86_64-static.tar.gz.sha512
-
-          # Verify SHA256
           sha256sum -c fluent-bit-$VERSION-linux-x86_64-static.tar.gz.sha256
 
-          # Or verify SHA512
-          sha512sum -c fluent-bit-$VERSION-linux-x86_64-static.tar.gz.sha512
+          # For LuaJIT build
+          wget https://github.com/${{ github.repository }}/releases/download/v$VERSION/fluent-bit-$VERSION-linux-x86_64-static-luajit.tar.gz.sha256
+          sha256sum -c fluent-bit-$VERSION-linux-x86_64-static-luajit.tar.gz.sha256
           ```
 
           ## Included Artifacts
 
-          - `fluent-bit-$VERSION-linux-x86_64-static.tar.gz`: Statically compiled binary for Linux x86_64
+          **Standard Build:**
+          - `fluent-bit-$VERSION-linux-x86_64-static.tar.gz`: Binary without Lua support
           - `fluent-bit-$VERSION-linux-x86_64-static.tar.gz.sha256`: SHA256 checksum
           - `fluent-bit-$VERSION-linux-x86_64-static.tar.gz.sha512`: SHA512 checksum
+
+          **LuaJIT Build:**
+          - `fluent-bit-$VERSION-linux-x86_64-static-luajit.tar.gz`: Binary with LuaJIT support
+          - `fluent-bit-$VERSION-linux-x86_64-static-luajit.tar.gz.sha256`: SHA256 checksum
+          - `fluent-bit-$VERSION-linux-x86_64-static-luajit.tar.gz.sha512`: SHA512 checksum
           EOF
 
           sed -i "s/\$VERSION/${VERSION}/g" release_notes.md
@@ -299,17 +373,22 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: fluent-bit-linux-x86_64
+          pattern: fluent-bit-linux-x86_64-*
+          merge-multiple: true
 
       - name: Dry run summary
         run: |
           VERSION="${{ needs.check-version.outputs.latest_version }}"
           echo "::notice::DRY RUN COMPLETED SUCCESSFULLY"
-          echo "::notice::Fluent Bit v${VERSION} was built and packaged"
+          echo "::notice::Fluent Bit v${VERSION} was built and packaged (multiple variants)"
           echo "::notice::In production mode, this would create a release"
           echo ""
           echo "Build artifacts:"
           ls -lh fluent-bit-*.tar.gz
           echo ""
-          echo "Artifact size:"
+          echo "Artifact sizes:"
           du -h fluent-bit-*.tar.gz
+          echo ""
+          echo "Variants built:"
+          echo "  - Standard (no Lua): fluent-bit-${VERSION}-linux-x86_64-static.tar.gz"
+          echo "  - LuaJIT enabled: fluent-bit-${VERSION}-linux-x86_64-static-luajit.tar.gz"

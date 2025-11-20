@@ -64,6 +64,7 @@ cmake -DCMAKE_BUILD_TYPE=Release \
       -DFLB_DEBUG=No \
       -DFLB_SHARED_LIB=Off \
       -DFLB_STATIC_LIBS=On \
+      -DFLB_TRACE=On \
       -DFLB_IN_SYSTEMD=Off \
       -DFLB_CONFIG_YAML=Off \
       -DFLB_WASM=No \

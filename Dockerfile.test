@@ -74,5 +74,8 @@ WORKDIR /build
 COPY test-build.sh .
 RUN chmod +x test-build.sh
 
+# Default variant is set at runtime (can be overridden with docker run -e VARIANT=luajit)
+ENV VARIANT=no-lua
+
 # Run the build
-CMD ["./test-build.sh"]
+CMD ["sh", "-c", "./test-build.sh $VARIANT"]

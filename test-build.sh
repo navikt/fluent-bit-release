@@ -1,10 +1,24 @@
 #!/bin/bash
 set -e
 
+# Parse arguments
+VARIANT="${1:-no-lua}"  # Default to no-lua variant
+
+if [[ "$VARIANT" != "no-lua" && "$VARIANT" != "luajit" ]]; then
+    echo "Usage: $0 [no-lua|luajit]"
+    echo ""
+    echo "Variants:"
+    echo "  no-lua  - Build without Lua support (default)"
+    echo "  luajit  - Build with static LuaJIT support"
+    exit 1
+fi
+
 # Get latest Fluent Bit version
 echo "Fetching latest Fluent Bit version..."
 VERSION=$(curl -s https://api.github.com/repos/fluent/fluent-bit/releases/latest | jq -r '.tag_name' | sed 's/^v//')
 echo "Latest version: $VERSION"
+echo "Building variant: $VARIANT"
+echo ""
 
 # Install dependencies (only if not in Docker)
 if [[ "$OSTYPE" == "linux-gnu"* ]] && command -v sudo &> /dev/null; then
@@ -29,10 +43,21 @@ tar -xzf "v${VERSION}.tar.gz"
 cd "fluent-bit-${VERSION}"
 
 # Build
-echo "Building Fluent Bit..."
+echo "Building Fluent Bit ($VARIANT variant)..."
 rm -rf build
 mkdir build
 cd build
+
+# Set LuaJIT flag based on variant
+if [[ "$VARIANT" == "luajit" ]]; then
+    LUAJIT_FLAG="Yes"
+    SUFFIX="static-luajit"
+    echo "Enabling LuaJIT support..."
+else
+    LUAJIT_FLAG="No"
+    SUFFIX="static"
+    echo "Building without Lua support..."
+fi
 
 cmake -DCMAKE_BUILD_TYPE=Release \
       -DFLB_RELEASE=On \
@@ -42,7 +67,7 @@ cmake -DCMAKE_BUILD_TYPE=Release \
       -DFLB_IN_SYSTEMD=Off \
       -DFLB_CONFIG_YAML=Off \
       -DFLB_WASM=No \
-      -DFLB_LUAJIT=No \
+      -DFLB_LUAJIT=${LUAJIT_FLAG} \
       -DOPENSSL_ROOT_DIR=/usr/local/ssl \
       -DOPENSSL_USE_STATIC_LIBS=ON \
       -DZLIB_ROOT=/usr/local/zlib \
@@ -71,19 +96,19 @@ echo "Testing binary..."
 
 # Package
 echo ""
-echo "Packaging..."
+echo "Packaging ($VARIANT)..."
 mkdir -p fluent-bit-linux-x86_64
 cp bin/fluent-bit fluent-bit-linux-x86_64/
-tar -czf "fluent-bit-${VERSION}-linux-x86_64-static.tar.gz" fluent-bit-linux-x86_64
+tar -czf "fluent-bit-${VERSION}-linux-x86_64-${SUFFIX}.tar.gz" fluent-bit-linux-x86_64
 
 # Generate checksums
-sha256sum "fluent-bit-${VERSION}-linux-x86_64-static.tar.gz" > "fluent-bit-${VERSION}-linux-x86_64-static.tar.gz.sha256"
-sha512sum "fluent-bit-${VERSION}-linux-x86_64-static.tar.gz" > "fluent-bit-${VERSION}-linux-x86_64-static.tar.gz.sha512"
+sha256sum "fluent-bit-${VERSION}-linux-x86_64-${SUFFIX}.tar.gz" > "fluent-bit-${VERSION}-linux-x86_64-${SUFFIX}.tar.gz.sha256"
+sha512sum "fluent-bit-${VERSION}-linux-x86_64-${SUFFIX}.tar.gz" > "fluent-bit-${VERSION}-linux-x86_64-${SUFFIX}.tar.gz.sha512"
 
 echo ""
-echo "✓ Success! Package created: fluent-bit-${VERSION}-linux-x86_64-static.tar.gz"
-ls -lh "fluent-bit-${VERSION}-linux-x86_64-static.tar.gz"*
+echo "✓ Success! Package created: fluent-bit-${VERSION}-linux-x86_64-${SUFFIX}.tar.gz"
+ls -lh "fluent-bit-${VERSION}-linux-x86_64-${SUFFIX}.tar.gz"*
 echo ""
 echo "Checksums:"
-cat "fluent-bit-${VERSION}-linux-x86_64-static.tar.gz.sha256"
-cat "fluent-bit-${VERSION}-linux-x86_64-static.tar.gz.sha512"
+cat "fluent-bit-${VERSION}-linux-x86_64-${SUFFIX}.tar.gz.sha256"
+cat "fluent-bit-${VERSION}-linux-x86_64-${SUFFIX}.tar.gz.sha512"

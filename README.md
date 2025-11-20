@@ -4,11 +4,17 @@ Statically compiled fluent-bit binaries for Linux x86_64.
 
 ## Overview
 
-This repository automatically builds and releases statically compiled versions of [Fluent Bit](https://github.com/fluent/fluent-bit) for Linux x86_64. The builds are triggered daily to check for new Fluent Bit releases and can also be manually triggered.
+This repository automatically builds and releases statically compiled versions of [Fluent Bit](https://github.com/fluent/fluent-bit) for Linux x86_64 in two variants:
+
+- **Standard build**: Fully static, no Lua support (smaller, maximum portability)
+- **LuaJIT build**: Fully static with embedded LuaJIT (supports Lua filter plugin)
+
+Builds are triggered daily to check for new Fluent Bit releases and can also be manually triggered.
 
 ## Features
 
 - **Static Linking**: Binaries are statically linked with no external dependencies
+- **Multiple Variants**: Choose between standard or LuaJIT-enabled builds
 - **Automated Builds**: Daily checks for new Fluent Bit releases
 - **Platform**: Linux x86_64
 - **Source**: Official Fluent Bit releases from https://github.com/fluent/fluent-bit
@@ -16,6 +22,8 @@ This repository automatically builds and releases statically compiled versions o
 ## Installation
 
 Download the latest release from the [Releases](https://github.com/navikt/fluent-bit-release/releases) page:
+
+### Standard Build (Recommended for most users)
 
 ```bash
 # Replace VERSION with the desired version
@@ -26,9 +34,26 @@ cd fluent-bit-linux-x86_64
 ./fluent-bit --version
 ```
 
+**Use this if:** You don't need Lua filter support and want the smallest binary.
+
+### LuaJIT Build (For Lua filter support)
+
+```bash
+# Replace VERSION with the desired version
+VERSION=4.2.0
+wget https://github.com/navikt/fluent-bit-release/releases/download/v${VERSION}/fluent-bit-${VERSION}-linux-x86_64-static-luajit.tar.gz
+tar -xzf fluent-bit-${VERSION}-linux-x86_64-static-luajit.tar.gz
+cd fluent-bit-linux-x86_64
+./fluent-bit --version
+```
+
+**Use this if:** You need the Lua filter plugin for custom data processing.
+
 ### Verify Download Integrity
 
-Each release includes SHA256 and SHA512 checksums for verification:
+Each variant includes SHA256 and SHA512 checksums for verification:
+
+**Standard build:**
 
 ```bash
 # Download checksums
@@ -40,6 +65,20 @@ sha256sum -c fluent-bit-${VERSION}-linux-x86_64-static.tar.gz.sha256
 
 # Or verify SHA512
 sha512sum -c fluent-bit-${VERSION}-linux-x86_64-static.tar.gz.sha512
+```
+
+**LuaJIT build:**
+
+```bash
+# Download checksums
+wget https://github.com/navikt/fluent-bit-release/releases/download/v${VERSION}/fluent-bit-${VERSION}-linux-x86_64-static-luajit.tar.gz.sha256
+wget https://github.com/navikt/fluent-bit-release/releases/download/v${VERSION}/fluent-bit-${VERSION}-linux-x86_64-static-luajit.tar.gz.sha512
+
+# Verify SHA256
+sha256sum -c fluent-bit-${VERSION}-linux-x86_64-static-luajit.tar.gz.sha256
+
+# Or verify SHA512
+sha512sum -c fluent-bit-${VERSION}-linux-x86_64-static-luajit.tar.gz.sha512
 ```
 
 ## Manual Trigger
@@ -121,14 +160,21 @@ Note: On Linux, the script will attempt to install dependencies using `apt-get`.
 
 ## Build Configuration
 
-The static builds include:
+The builds include two variants:
+
+### Standard Build (No Lua)
 
 - **OpenSSL 3.0.15** - Built statically for TLS support
 - **zlib 1.3.1** - Built statically for compression
 - **zstd 1.5.6** - Built statically for Zstandard compression
-- **Disabled features**:
-  - systemd input plugin (requires dynamic linking)
-  - YAML configuration format (optional dependency)
+- **Disabled features**: systemd, YAML config, WASM, LuaJIT
+
+### LuaJIT Build
+
+- **All standard build dependencies** (OpenSSL, zlib, zstd)
+- **LuaJIT** - Built statically and embedded in the binary
+- **Enabled**: Lua filter plugin support
+- **Disabled features**: systemd, YAML config, WASM
 
 All builds use:
 
